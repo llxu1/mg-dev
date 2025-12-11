@@ -13,6 +13,9 @@ param location string = resourceGroup().location
 @description('Enable private endpoints for Azure resources (ACR, Cosmos DB). When enabled, resources will only be accessible within the VNet.')
 param enablePrivateEndpoints bool = false
 
+@description('Enable Kubernetes deployment script. Set to false when using external PowerShell script for deployment.')
+param enableKubernetesDeploymentScript bool = true
+
 var resourceLabelLower = toLower(resourceLabel)
 
 var aksNameBase = 'mg-aks-${resourceLabelLower}'
@@ -534,7 +537,7 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
   }
 }
 
-resource kubernetesDeployment 'Microsoft.Resources/deploymentScripts@2023-08-01' = {
+resource kubernetesDeployment 'Microsoft.Resources/deploymentScripts@2023-08-01' = if (enableKubernetesDeploymentScript) {
   identity: {
     type: 'UserAssigned'
     userAssignedIdentities: {
@@ -599,3 +602,16 @@ resource kubernetesDeployment 'Microsoft.Resources/deploymentScripts@2023-08-01'
   }
   dependsOn: [aks]
 }
+
+// Outputs
+output aksName string = aksName
+output acrName string = acrName
+output cosmosDbAccountName string = cosmosDbAccountName
+output userAssignedIdentityClientId string = uai.properties.clientId
+output workloadIdentityClientId string = uaiWorkload.properties.clientId
+output appInsightsConnectionString string = appInsights.properties.ConnectionString
+output resourceGroupName string = resourceGroup().name
+output resourceLabel string = resourceLabel
+output tenantId string = tenant().tenantId
+output location string = location
+output publicIpFqdn string = appGwPublicIp.properties.dnsSettings.fqdn
