@@ -1,4 +1,4 @@
-﻿// Copyright (c) Microsoft Corporation.
+// Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
 using Microsoft.AspNetCore.Authorization;
@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.McpGateway.Management.Contracts;
 using Microsoft.McpGateway.Management.Service;
 
-namespace Microsoft.McpGateway.Service.Controllers
+namespace Microsoft.McpGateway.Management.Service.Controllers
 {
     [ApiController]
     [Route("adapters")]

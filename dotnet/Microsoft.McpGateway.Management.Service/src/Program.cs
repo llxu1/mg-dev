@@ -9,11 +9,9 @@ using Microsoft.Azure.Cosmos.Fluent;
 using Microsoft.Identity.Web;
 using Microsoft.McpGateway.Management.Authorization;
 using Microsoft.McpGateway.Management.Deployment;
+using Microsoft.McpGateway.Management.Service;
+using Microsoft.McpGateway.Management.Service.Authentication;
 using Microsoft.McpGateway.Management.Store;
-using Microsoft.McpGateway.Service.Authentication;
-using Microsoft.McpGateway.Service.Routing;
-using Microsoft.McpGateway.Service.Session;
-using ModelContextProtocol.AspNetCore.Authentication;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -24,9 +22,6 @@ builder.Services.AddApplicationInsightsTelemetry();
 builder.Services.AddLogging();
 
 builder.Services.AddSingleton<IKubernetesClientFactory, LocalKubernetesClientFactory>();
-builder.Services.AddSingleton<IAdapterSessionStore, DistributedMemorySessionStore>();
-builder.Services.AddSingleton<IServiceNodeInfoProvider, AdapterKubernetesNodeInfoProvider>();
-builder.Services.AddSingleton<ISessionRoutingHandler, AdapterSessionRoutingHandler>();
 
 if (builder.Environment.IsDevelopment())
 {
@@ -42,6 +37,7 @@ if (builder.Environment.IsDevelopment())
     });
 
     builder.Services.AddSingleton<IAdapterResourceStore, RedisAdapterResourceStore>();
+    builder.Services.AddSingleton<IToolResourceStore, RedisToolResourceStore>();
 
     builder.Logging.AddConsole();
     builder.Logging.SetMinimumLevel(LogLevel.Debug);
@@ -49,24 +45,8 @@ if (builder.Environment.IsDevelopment())
 else
 {
     var azureAdConfig = builder.Configuration.GetSection("AzureAd");
-    builder.Services.AddAuthentication(options =>
-    {
-        options.DefaultChallengeScheme = McpAuthenticationDefaults.AuthenticationScheme;
-        options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-    })
-    .AddScheme<McpAuthenticationOptions, McpSubPathAwareAuthenticationHandler>(
-        McpAuthenticationDefaults.AuthenticationScheme,
-        McpAuthenticationDefaults.DisplayName,
-    options =>
-    {
-        options.ResourceMetadata = new()
-        {
-            Resource = new Uri(builder.Configuration.GetValue<string>("PublicOrigin")!),
-            AuthorizationServers = { new Uri($"https://login.microsoftonline.com/{azureAdConfig["TenantId"]}/v2.0") },
-            ScopesSupported = [$"api://{azureAdConfig["ClientId"]}/.default"]
-        };
-    })
-    .AddMicrosoftIdentityWebApi(azureAdConfig);
+    builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+        .AddMicrosoftIdentityWebApi(azureAdConfig);
 
     // Create CosmosClient with credential-based authentication
     var cosmosConfig = builder.Configuration.GetSection("CosmosSettings");
@@ -86,6 +66,12 @@ else
         var logger = sp.GetRequiredService<ILogger<CosmosAdapterResourceStore>>();
         return new CosmosAdapterResourceStore(cosmosClient, cosmosConfig["DatabaseName"]!, "AdapterContainer", logger);
     });
+
+    builder.Services.AddSingleton<IToolResourceStore>(sp =>
+    {
+        var logger = sp.GetRequiredService<ILogger<CosmosToolResourceStore>>();
+        return new CosmosToolResourceStore(cosmosClient, cosmosConfig["DatabaseName"]!, "ToolContainer", logger);
+    });
     
     builder.Services.AddCosmosCache(options =>
     {
@@ -96,7 +82,20 @@ else
     });
 }
 
+builder.Services.AddSingleton<IKubeClientWrapper>(c =>
+{
+    var kubeClientFactory = c.GetRequiredService<IKubernetesClientFactory>();
+    return new KubeClient(kubeClientFactory, "adapter");
+});
 builder.Services.AddSingleton<IPermissionProvider, SimplePermissionProvider>();
+builder.Services.AddSingleton<IAdapterDeploymentManager>(c =>
+{
+    var config = builder.Configuration.GetSection("ContainerRegistrySettings");
+    return new KubernetesAdapterDeploymentManager(config["Endpoint"]!, c.GetRequiredService<IKubeClientWrapper>(), c.GetRequiredService<ILogger<KubernetesAdapterDeploymentManager>>());
+});
+builder.Services.AddSingleton<IAdapterManagementService, AdapterManagementService>();
+builder.Services.AddSingleton<IToolManagementService, ToolManagementService>();
+builder.Services.AddSingleton<IAdapterRichResultProvider, AdapterRichResultProvider>();
 
 builder.Services.AddAuthorization();
 builder.Services.AddControllers();
@@ -104,7 +103,7 @@ builder.Services.AddHttpClient();
 
 builder.WebHost.ConfigureKestrel(options =>
 {
-    options.ListenAnyIP(8000);
+    options.ListenAnyIP(8001);
 });
 
 var app = builder.Build();
@@ -114,3 +113,4 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 await app.RunAsync();
+

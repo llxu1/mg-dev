@@ -268,6 +268,21 @@ function Deploy-KubernetesResources {
     $processedTemplatePath = Join-Path $tempDir "cloud-deployment-processed.yml"
     $content | Set-Content $processedTemplatePath -NoNewline
 
+    # Install Nginx Ingress Controller
+    Write-ColorOutput "Installing Nginx Ingress Controller..." -Type Info
+    try {
+        $nginxInstallCommand = "kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.11.1/deploy/static/provider/cloud/deploy.yaml"
+        az aks command invoke `
+            --resource-group $ResourceGroupName `
+            --name $aksName `
+            --command $nginxInstallCommand
+        Write-ColorOutput "✓ Nginx Ingress Controller installed" -Type Success
+    }
+    catch {
+        Write-ColorOutput "✗ Failed to install Nginx Ingress Controller" -Type Error
+        throw
+    }
+
     # Apply Kubernetes manifest using AKS command invoke
     Write-ColorOutput "Applying Kubernetes manifest to AKS..." -Type Info
     try {

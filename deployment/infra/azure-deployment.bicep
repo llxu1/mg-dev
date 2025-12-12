@@ -257,7 +257,7 @@ resource appGw 'Microsoft.Network/applicationGateways@2022-09-01' = {
           pickHostNameFromBackendAddress: false
           requestTimeout: 20
           probe: {
-            id: resourceId('Microsoft.Network/applicationGateways/probes', appGwName, 'mcpgateway-probe')
+            id: resourceId('Microsoft.Network/applicationGateways/probes', appGwName, 'ingress-probe')
           }
         }
       }
@@ -296,11 +296,12 @@ resource appGw 'Microsoft.Network/applicationGateways@2022-09-01' = {
     ]
     probes: [
     {
-      name: 'mcpgateway-probe'
+      name: 'ingress-probe'
       properties: {
         protocol: 'Http'
         host: '10.0.1.100'
         path: '/ping'
+        port: 8000
         interval: 30
         timeout: 30
         unhealthyThreshold: 3
@@ -552,6 +553,12 @@ resource kubernetesDeployment 'Microsoft.Resources/deploymentScripts@2023-08-01'
     timeout: 'PT30M'
     retentionInterval: 'P1D'
     scriptContent: '''
+      # Install Nginx Ingress Controller
+      echo "Installing Nginx Ingress Controller..."
+      az aks command invoke -g $ResourceGroupName -n mg-aks-"$ResourceGroupName" --command "kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.11.1/deploy/static/provider/cloud/deploy.yaml"
+            
+      # Deploy MCP Gateway resources
+      echo "Deploying MCP Gateway resources..."
       sed -i "s|\${AZURE_CLIENT_ID}|$AZURE_CLIENT_ID|g" cloud-deployment-template.yml
       sed -i "s|\${WORKLOAD_CLIENT_ID}|$WORKLOAD_CLIENT_ID|g" cloud-deployment-template.yml
       sed -i "s|\${TENANT_ID}|$TENANT_ID|g" cloud-deployment-template.yml
@@ -561,6 +568,8 @@ resource kubernetesDeployment 'Microsoft.Resources/deploymentScripts@2023-08-01'
       sed -i "s|\${REGION}|$REGION|g" cloud-deployment-template.yml
 
       az aks command invoke -g $ResourceGroupName -n mg-aks-"$ResourceGroupName" --command "kubectl apply -f cloud-deployment-template.yml" --file cloud-deployment-template.yml
+      
+      echo "Deployment completed successfully"
     '''
     supportingScriptUris: [
       'https://raw.githubusercontent.com/microsoft/mcp-gateway/refs/heads/main/deployment/k8s/cloud-deployment-template.yml'

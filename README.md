@@ -206,12 +206,28 @@ docker build -f sample-servers/mcp-example/Dockerfile sample-servers/mcp-example
 docker push localhost:5000/mcp-example:1.0.0
 ```
 
-### 4. Build & Publish MCP Gateway and Tool Gateway Router
+### 4. Install Nginx Ingress Controller
+Install the Nginx Ingress Controller in your Kubernetes cluster:
+```sh
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.11.1/deploy/static/provider/cloud/deploy.yaml
+```
+
+Wait for the Nginx Ingress Controller to be ready:
+```sh
+kubectl wait --namespace ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=120s
+```
+
+### 5. Build & Publish MCP Gateway and Tool Gateway Router
 (Optional) Open `dotnet/Microsoft.McpGateway.sln` with Visual Studio.
 
-Publish the MCP Gateway image:
+Publish the MCP Gateway Service image:
 ```sh
 dotnet publish dotnet/Microsoft.McpGateway.Service/src/Microsoft.McpGateway.Service.csproj -c Release /p:PublishProfile=localhost_5000.pubxml
+```
+
+Publish the MCP Gateway Management Service image:
+```sh
+dotnet publish dotnet/Microsoft.McpGateway.Management.Service/Microsoft.McpGateway.Management.Service.csproj -c Release /p:PublishProfile=localhost_5000.pubxml
 ```
 
 Publish the Tool Gateway Router image:
@@ -219,24 +235,20 @@ Publish the Tool Gateway Router image:
 dotnet publish dotnet/Microsoft.McpGateway.Tools/src/Microsoft.McpGateway.Tools.csproj -c Release /p:PublishProfile=localhost_5000.pubxml
 ```
 
-### 5. Deploy MCP Gateway to Kubernetes Cluster
+### 6. Deploy MCP Gateway to Kubernetes Cluster
 Apply the deployment manifests:
 ```sh
 kubectl apply -f deployment/k8s/local-deployment.yml
 ```
 
-### 6. Enable Port Forwarding
-Forward the gateway service port:
-```sh
-kubectl port-forward -n adapter svc/mcpgateway-service 8000:8000
-```
+The gateway will be accessible via the Nginx Ingress Controller at `http://localhost:30080`.
 
 ### 7. Test the API - MCP Server Management
 - Import the OpenAPI definition from `openapi/mcp-gateway.openapi.json` into tools like [Postman](https://www.postman.com/), [Bruno](https://www.usebruno.com/), or [Swagger Editor](https://editor.swagger.io/).
 
 - Send a request to create a new adapter resource:
   ```http
-  POST http://localhost:8000/adapters
+  POST http://localhost:30080/adapters
   Content-Type: application/json
   ```
    ```json
@@ -253,21 +265,21 @@ kubectl port-forward -n adapter svc/mcpgateway-service 8000:8000
   > **Note:** Ensure VSCode is up to date to access the latest MCP features.
 
   - To connect to the deployed `mcp-example` server, use:  
-     - `http://localhost:8000/adapters/mcp-example/mcp` (Streamable HTTP)
+     - `http://localhost:30080/adapters/mcp-example/mcp` (Streamable HTTP)
 
   Sample `.vscode/mcp.json` that connects to the `mcp-example` server
   ```json
   {
     "servers": {
       "mcp-example": {
-        "url": "http://localhost:8000/adapters/mcp-example/mcp",
+        "url": "http://localhost:30080/adapters/mcp-example/mcp",
       }
     }
   }
   ```
 
 - For other servers:  
-  - `http://localhost:8000/adapters/{name}/mcp` (Streamable HTTP)  
+  - `http://localhost:30080/adapters/{name}/mcp` (Streamable HTTP)  
 
 ### 9. Test Tool Registration and Dynamic Routing
 
@@ -283,7 +295,7 @@ docker push localhost:5000/weather-tool:1.0.0
 
 Send a request to register a tool with its definition:
 ```http
-POST http://localhost:8000/tools
+POST http://localhost:30080/tools
 Content-Type: application/json
 ```
 ```json
@@ -318,7 +330,7 @@ Content-Type: application/json
 
 Check the tool deployment status:
 ```http
-GET http://localhost:8000/tools/weather/status
+GET http://localhost:30080/tools/weather/status
 ```
 
 #### Test Tool Routing via Tool Gateway Router
@@ -330,7 +342,7 @@ Sample `.vscode/mcp.json` that connects to the tool gateway router:
 {
   "servers": {
     "tool-gateway": {
-      "url": "http://localhost:8000/mcp"
+      "url": "http://localhost:30080/mcp"
     }
   }
 }

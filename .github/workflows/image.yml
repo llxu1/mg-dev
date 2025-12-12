@@ -39,3 +39,6 @@ jobs:
 
     - name: Publish and push the tool-gateway container image
       run: dotnet publish dotnet/Microsoft.McpGateway.Tools/src/Microsoft.McpGateway.Tools.csproj --configuration Release --no-restore /p:PublishProfile=github.pubxml /p:ContainerRepository=${{ github.repository_owner }}/tool-gateway
+
+    - name: Publish and push the mcp-gateway-management container image
+      run: dotnet publish dotnet/Microsoft.McpGateway.Management.Service/src/Microsoft.McpGateway.Management.Service.csproj --configuration Release --no-restore /p:PublishProfile=github.pubxml /p:ContainerRepository=${{ github.repository_owner }}/mcp-gateway-management

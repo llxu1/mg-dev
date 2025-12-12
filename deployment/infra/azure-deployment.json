@@ -4,8 +4,8 @@
   "metadata": {
     "_generator": {
       "name": "bicep",
-      "version": "0.38.33.27573",
-      "templateHash": "5648627402420051357"
+      "version": "0.39.26.7824",
+      "templateHash": "2572144862397919338"
     }
   },
   "parameters": {
@@ -36,6 +36,13 @@
       "defaultValue": false,
       "metadata": {
         "description": "Enable private endpoints for Azure resources (ACR, Cosmos DB). When enabled, resources will only be accessible within the VNet."
+      }
+    },
+    "enableKubernetesDeploymentScript": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Enable Kubernetes deployment script. Set to false when using external PowerShell script for deployment."
       }
     }
   },
@@ -279,7 +286,7 @@
               "pickHostNameFromBackendAddress": false,
               "requestTimeout": 20,
               "probe": {
-                "id": "[resourceId('Microsoft.Network/applicationGateways/probes', variables('appGwName'), 'mcpgateway-probe')]"
+                "id": "[resourceId('Microsoft.Network/applicationGateways/probes', variables('appGwName'), 'ingress-probe')]"
               }
             }
           }
@@ -318,11 +325,12 @@
         ],
         "probes": [
           {
-            "name": "mcpgateway-probe",
+            "name": "ingress-probe",
             "properties": {
               "protocol": "Http",
               "host": "10.0.1.100",
               "path": "/ping",
+              "port": 8000,
               "interval": 30,
               "timeout": 30,
               "unhealthyThreshold": 3,
@@ -610,6 +618,7 @@
       }
     },
     {
+      "condition": "[parameters('enableKubernetesDeploymentScript')]",
       "type": "Microsoft.Resources/deploymentScripts",
       "apiVersion": "2023-08-01",
       "name": "kubernetesDeployment",
@@ -625,7 +634,7 @@
         "azCliVersion": "2.60.0",
         "timeout": "PT30M",
         "retentionInterval": "P1D",
-        "scriptContent": "      sed -i \"s|\\${AZURE_CLIENT_ID}|$AZURE_CLIENT_ID|g\" cloud-deployment-template.yml\r\n      sed -i \"s|\\${WORKLOAD_CLIENT_ID}|$WORKLOAD_CLIENT_ID|g\" cloud-deployment-template.yml\r\n      sed -i \"s|\\${TENANT_ID}|$TENANT_ID|g\" cloud-deployment-template.yml\r\n      sed -i \"s|\\${CLIENT_ID}|$CLIENT_ID|g\" cloud-deployment-template.yml\r\n      sed -i \"s|\\${APPINSIGHTS_CONNECTION_STRING}|$APPINSIGHTS_CONNECTION_STRING|g\" cloud-deployment-template.yml\r\n      sed -i \"s|\\${IDENTIFIER}|$IDENTIFIER|g\" cloud-deployment-template.yml\r\n      sed -i \"s|\\${REGION}|$REGION|g\" cloud-deployment-template.yml\r\n\r\n      az aks command invoke -g $ResourceGroupName -n mg-aks-\"$ResourceGroupName\" --command \"kubectl apply -f cloud-deployment-template.yml\" --file cloud-deployment-template.yml\r\n    ",
+        "scriptContent": "      # Install Nginx Ingress Controller\r\n      echo \"Installing Nginx Ingress Controller...\"\r\n      az aks command invoke -g $ResourceGroupName -n mg-aks-\"$ResourceGroupName\" --command \"kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.11.1/deploy/static/provider/cloud/deploy.yaml\"\r\n            \r\n      # Deploy MCP Gateway resources\r\n      echo \"Deploying MCP Gateway resources...\"\r\n      sed -i \"s|\\${AZURE_CLIENT_ID}|$AZURE_CLIENT_ID|g\" cloud-deployment-template.yml\r\n      sed -i \"s|\\${WORKLOAD_CLIENT_ID}|$WORKLOAD_CLIENT_ID|g\" cloud-deployment-template.yml\r\n      sed -i \"s|\\${TENANT_ID}|$TENANT_ID|g\" cloud-deployment-template.yml\r\n      sed -i \"s|\\${CLIENT_ID}|$CLIENT_ID|g\" cloud-deployment-template.yml\r\n      sed -i \"s|\\${APPINSIGHTS_CONNECTION_STRING}|$APPINSIGHTS_CONNECTION_STRING|g\" cloud-deployment-template.yml\r\n      sed -i \"s|\\${IDENTIFIER}|$IDENTIFIER|g\" cloud-deployment-template.yml\r\n      sed -i \"s|\\${REGION}|$REGION|g\" cloud-deployment-template.yml\r\n\r\n      az aks command invoke -g $ResourceGroupName -n mg-aks-\"$ResourceGroupName\" --command \"kubectl apply -f cloud-deployment-template.yml\" --file cloud-deployment-template.yml\r\n      \r\n      echo \"Deployment completed successfully\"\r\n    ",
         "supportingScriptUris": [
           "https://raw.githubusercontent.com/microsoft/mcp-gateway/refs/heads/main/deployment/k8s/cloud-deployment-template.yml"
         ],
@@ -672,5 +681,51 @@
         "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-workload', variables('userAssignedIdentityName')))]"
       ]
     }
-  ]
+  ],
+  "outputs": {
+    "aksName": {
+      "type": "string",
+      "value": "[variables('aksName')]"
+    },
+    "acrName": {
+      "type": "string",
+      "value": "[variables('acrName')]"
+    },
+    "cosmosDbAccountName": {
+      "type": "string",
+      "value": "[variables('cosmosDbAccountName')]"
+    },
+    "userAssignedIdentityClientId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('userAssignedIdentityName')), '2023-01-31').clientId]"
+    },
+    "workloadIdentityClientId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-workload', variables('userAssignedIdentityName'))), '2023-01-31').clientId]"
+    },
+    "appInsightsConnectionString": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Insights/components', variables('appInsightsName')), '2020-02-02').ConnectionString]"
+    },
+    "resourceGroupName": {
+      "type": "string",
+      "value": "[resourceGroup().name]"
+    },
+    "resourceLabel": {
+      "type": "string",
+      "value": "[parameters('resourceLabel')]"
+    },
+    "tenantId": {
+      "type": "string",
+      "value": "[tenant().tenantId]"
+    },
+    "location": {
+      "type": "string",
+      "value": "[parameters('location')]"
+    },
+    "publicIpFqdn": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpName')), '2022-05-01').dnsSettings.fqdn]"
+    }
+  }
 }

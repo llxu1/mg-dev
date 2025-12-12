@@ -44,17 +44,64 @@ kind: Service
 metadata:
   name: mcpgateway-service
   namespace: adapter
-  annotations:
-    service.beta.kubernetes.io/azure-load-balancer-internal: "true"
 spec:
-  type: LoadBalancer
-  loadBalancerIP: 10.0.1.100
+  type: ClusterIP
   selector:
     app: mcpgateway
   ports:
     - protocol: TCP
       port: 8000
       targetPort: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcpgateway-management
+  namespace: adapter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mcpgateway-management
+  template:
+    metadata:
+      labels:
+        app: mcpgateway-management
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: mcpgateway-sa
+      containers:
+        - name: mcpgateway-management-container
+          image: ghcr.io/microsoft/mcp-gateway-management:latest
+          ports:
+            - containerPort: 8001
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              value: "Production"
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          envFrom:
+            - configMapRef:
+                name: app-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcpgateway-management-service
+  namespace: adapter
+spec:
+  type: ClusterIP
+  selector:
+    app: mcpgateway-management
+  ports:
+    - protocol: TCP
+      port: 8001
+      targetPort: 8001
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -101,6 +148,71 @@ roleRef:
   kind: Role
   name: app-manager
   apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mcpgateway-ingress
+  namespace: adapter
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          # MCP routes - /mcp and /adapters/{name}/mcp endpoints
+          - path: /adapters/[^/]+/mcp(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: mcpgateway-service
+                port:
+                  number: 8000
+          - path: /mcp(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: mcpgateway-service
+                port:
+                  number: 8000
+          # Management API routes - /adapters and /tools (without /mcp)
+          - path: /adapters(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: mcpgateway-management-service
+                port:
+                  number: 8001
+          - path: /tools(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: mcpgateway-management-service
+                port:
+                  number: 8001
+---
+# Nginx Ingress Controller LoadBalancer Service
+# This service gets the internal IP 10.0.1.100 that the Application Gateway points to
+apiVersion: v1
+kind: Service
+metadata:
+  name: ingress-nginx-controller
+  namespace: ingress-nginx
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+spec:
+  type: LoadBalancer
+  loadBalancerIP: 10.0.1.100
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: ingress-nginx
+    app.kubernetes.io/instance: ingress-nginx
+    app.kubernetes.io/component: controller
 ---
 apiVersion: v1
 kind: ConfigMap
